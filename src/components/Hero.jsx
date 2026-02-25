@@ -7,6 +7,7 @@ import {
   getActivePhraseIndex,
   easeInOut,
 } from '../constants/heroConfig'
+import { PRELOADED_FRAMES } from '../utils/preloadAssets'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -68,18 +69,45 @@ function getPhraseStyle(i, progress, elements, config) {
 
 function Hero() {
   const sectionRef = useRef(null)
-  const frameImageRef = useRef(null)
+  const frameCanvasRef = useRef(null)
   const phraseContainerRef = useRef(null)
   const phraseRefs = useRef([])
   const lastFrameIndex = useRef(-1)
 
   useEffect(() => {
     const section = sectionRef.current
-    const frameImage = frameImageRef.current
+    const canvas = frameCanvasRef.current
     const container = phraseContainerRef.current
     const elements = phraseRefs.current.filter(Boolean)
 
-    if (!section || !frameImage || !container || !elements.length) return
+    if (!section || !canvas || !container || !elements.length) return
+
+    const ctx = canvas.getContext('2d')
+
+    function setCanvasSize() {
+      const dpr = window.devicePixelRatio || 1
+      const rect = canvas.getBoundingClientRect()
+      canvas.width = Math.round(rect.width * dpr)
+      canvas.height = Math.round(rect.height * dpr)
+      canvas.style.width = `${Math.round(rect.width)}px`
+      canvas.style.height = `${Math.round(rect.height)}px`
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    }
+
+    function drawFrameImage(img) {
+      if (!img) return
+      const rect = canvas.getBoundingClientRect()
+      const cw = rect.width
+      const ch = rect.height
+      // cover: scale image to cover canvas
+      const scale = Math.max(cw / img.width, ch / img.height)
+      const sw = img.width * scale
+      const sh = img.height * scale
+      const sx = (cw - sw) / 2
+      const sy = (ch - sh) / 2
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(img, sx, sy, sw, sh)
+    }
 
     gsap.set(container, { position: 'relative', minHeight: '1.5em', width: '100%' })
     gsap.set(elements, {
@@ -100,7 +128,15 @@ function Hero() {
       )
       if (frameIndex !== lastFrameIndex.current) {
         lastFrameIndex.current = frameIndex
-        frameImage.src = getFramePath(frameIndex)
+        const cached = PRELOADED_FRAMES[frameIndex]
+        if (cached) {
+          drawFrameImage(cached)
+        } else {
+          // fallback: draw single Image directly
+          const img = new Image()
+          img.onload = () => drawFrameImage(img)
+          img.src = getFramePath(frameIndex)
+        }
       }
     }
 
@@ -129,11 +165,18 @@ function Hero() {
       },
     })
 
+    setCanvasSize()
     let ticking = false
     const onResize = () => {
       if (ticking) return
       ticking = true
       requestAnimationFrame(() => {
+        setCanvasSize()
+        // redraw current frame after resize
+        if (lastFrameIndex.current >= 0) {
+          const img = PRELOADED_FRAMES[lastFrameIndex.current]
+          if (img) drawFrameImage(img)
+        }
         ScrollTrigger.refresh()
         ticking = false
       })
@@ -150,11 +193,10 @@ function Hero() {
     <div className="hero-section" ref={sectionRef}>
       <div className="hero-bg" aria-hidden="true" />
       <div className="hero-canvas-wrapper">
-        <img
-          ref={frameImageRef}
+        <canvas
+          ref={frameCanvasRef}
           className="hero-canvas"
-          src={getFramePath(0)}
-          alt="Hero animation frame"
+          aria-hidden="true"
         />
       </div>
       <div className="hero-overlay" />
